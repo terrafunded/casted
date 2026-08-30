@@ -1,5 +1,6 @@
 import { fal } from "@fal-ai/client";
 import { NextRequest, NextResponse } from "next/server";
+import { classifyLabError, type LabError } from "@/lib/errors";
 import { isScenarioId, SCENARIO_PROMPTS } from "@/lib/scenarios";
 
 export const runtime = "nodejs";
@@ -10,9 +11,8 @@ type FalVideo = {
   video?: { url?: string };
 };
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  return "Generation failed.";
+function fail(code: LabError, status: number) {
+  return NextResponse.json({ error: code }, { status });
 }
 
 async function uploadStill(image: Blob): Promise<string> {
@@ -26,42 +26,37 @@ async function uploadStill(image: Blob): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const key = process.env.FAL_KEY;
-  if (!key) {
-    return NextResponse.json(
-      { error: "Server is missing FAL_KEY." },
-      { status: 500 },
-    );
-  }
-
-  fal.config({ credentials: key });
-
   let form: FormData;
   try {
     form = await req.formData();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return fail("lab_failed", 400);
   }
 
   const scenarioId = String(form.get("scenario") ?? "");
   const image = form.get("image");
 
   if (!isScenarioId(scenarioId)) {
-    return NextResponse.json({ error: "Invalid scenario." }, { status: 400 });
+    return fail("lab_failed", 400);
   }
 
   if (!(image instanceof Blob) || image.size === 0) {
-    return NextResponse.json({ error: "Missing still." }, { status: 400 });
+    return fail("lab_failed", 400);
   }
 
-  const prompt = SCENARIO_PROMPTS[scenarioId];
+  const key = process.env.FAL_KEY;
+  if (!key) {
+    return fail("lab_missing_key", 500);
+  }
+
+  fal.config({ credentials: key });
 
   try {
     const imageUrl = await uploadStill(image);
 
     const result = await fal.subscribe("minimax/h3-max/image-to-video", {
       input: {
-        prompt,
+        prompt: SCENARIO_PROMPTS[scenarioId],
         image_url: imageUrl,
         duration: 5,
         resolution: "480P",
@@ -73,20 +68,12 @@ export async function POST(req: NextRequest) {
     const data = result.data as FalVideo;
     const videoUrl = data?.video?.url;
     if (!videoUrl) {
-      return NextResponse.json(
-        { error: "Generation returned no video." },
-        { status: 502 },
-      );
+      return fail("lab_no_print", 502);
     }
 
     return NextResponse.json({ videoUrl });
   } catch (err) {
-    const message = errorMessage(err);
-    const status =
-      message.toLowerCase().includes("unauthor") ||
-      message.toLowerCase().includes("forbidden")
-        ? 502
-        : 500;
-    return NextResponse.json({ error: message }, { status });
+    const code = classifyLabError(err);
+    return fail(code, code === "lab_timeout" ? 504 : 502);
   }
 }

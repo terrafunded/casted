@@ -1,29 +1,31 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Serif, Geist } from "next/font/google";
+import { Fraunces, Oswald } from "next/font/google";
 import "./globals.css";
 
-const sans = Geist({
+const display = Fraunces({
   subsets: ["latin"],
-  variable: "--font-sans",
-});
-
-const display = Instrument_Serif({
-  weight: "400",
-  subsets: ["latin"],
+  weight: ["400", "600"],
+  style: ["normal", "italic"],
   variable: "--font-display",
 });
 
+const gothic = Oswald({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-gothic",
+});
+
 export const metadata: Metadata = {
-  title: "Casted — 5-second AI trailer",
+  title: "CASTED — A Picture",
   description:
-    "Live selfie to a five-second AI movie trailer. Camera only. No accounts.",
+    "One midnight studio. One film. Your face, one chapter, five seconds.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#070707",
+  themeColor: "#070503",
 };
 
 export default function RootLayout({
@@ -32,8 +34,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${sans.variable} ${display.variable}`}>
-      <body className="antialiased">{children}</body>
+    <html lang="en" className={`${display.variable} ${gothic.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

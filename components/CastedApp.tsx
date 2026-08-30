@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { captureCoverFrame, stopStream } from "@/lib/capture";
+import { labErrorFromResponse, type LabError } from "@/lib/errors";
 import { copy, localeFromNavigator, type Locale } from "@/lib/i18n";
-import { SCENARIO_IDS, type ScenarioId } from "@/lib/scenarios";
+import { CHAPTER_META, SCENARIO_IDS, type ScenarioId } from "@/lib/scenarios";
 
 type Step = "age" | "consent" | "studio" | "generating" | "result";
 
@@ -14,6 +15,47 @@ function subscribeLanguage(onStoreChange: () => void) {
 
 function subscribeShare() {
   return () => undefined;
+}
+
+function pad(n: number) {
+  return n.toString().padStart(2, "0");
+}
+
+function Timecode() {
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    let frames = 0;
+    const id = window.setInterval(() => {
+      frames += 1;
+      const f = frames % 24;
+      const total = Math.floor(frames / 24);
+      const s = total % 60;
+      const m = Math.floor(total / 60) % 60;
+      const h = Math.floor(total / 3600);
+      if (ref.current) {
+        ref.current.textContent = `${pad(h)}:${pad(m)}:${pad(s)}:${pad(f)}`;
+      }
+    }, 1000 / 24);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <span ref={ref} className="tc">
+      00:00:00:00
+    </span>
+  );
+}
+
+function FrameTicks() {
+  return (
+    <div className="ticks" aria-hidden>
+      <span className="tl" />
+      <span className="tr" />
+      <span className="bl" />
+      <span className="br" />
+    </div>
+  );
 }
 
 export default function CastedApp() {
@@ -34,7 +76,7 @@ export default function CastedApp() {
 
   const [step, setStep] = useState<Step>("age");
   const [consented, setConsented] = useState(false);
-  const [scenario, setScenario] = useState<ScenarioId>("action");
+  const [scenario, setScenario] = useState<ScenarioId>("chase");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -100,6 +142,13 @@ export default function CastedApp() {
     [startCamera, releaseCamera],
   );
 
+  function humanError(code: string | undefined): string {
+    if (code && code in t.errors) {
+      return t.errors[code as LabError];
+    }
+    return t.errors.lab_failed;
+  }
+
   async function onCapture() {
     if (!consented || busy) return;
     const video = videoRef.current;
@@ -113,7 +162,7 @@ export default function CastedApp() {
       still = await captureCoverFrame(video);
     } catch {
       setBusy(false);
-      setGenError(t.errorGeneric);
+      setGenError(t.errors.lab_failed);
       return;
     }
 
@@ -127,16 +176,24 @@ export default function CastedApp() {
 
     try {
       const res = await fetch("/api/generate", { method: "POST", body });
-      const data = (await res.json()) as { videoUrl?: string; error?: string };
-      if (!res.ok || !data.videoUrl) {
-        setGenError(data.error || t.errorGeneric);
+      const text = await res.text();
+      let parsed: { videoUrl?: string; error?: string } = {};
+      try {
+        parsed = JSON.parse(text) as { videoUrl?: string; error?: string };
+      } catch {
+        parsed = {};
+      }
+
+      if (!res.ok || !parsed.videoUrl) {
+        const code = parsed.error ?? labErrorFromResponse(res.status, text);
+        setGenError(humanError(code));
         setStep("studio");
         return;
       }
-      setVideoUrl(data.videoUrl);
+      setVideoUrl(parsed.videoUrl);
       setStep("result");
     } catch {
-      setGenError(t.errorServer);
+      setGenError(t.errors.lab_failed);
       setStep("studio");
     } finally {
       setBusy(false);
@@ -151,7 +208,7 @@ export default function CastedApp() {
       const href = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = href;
-      a.download = "casted-trailer.mp4";
+      a.download = "a-casted-picture.mp4";
       a.click();
       URL.revokeObjectURL(href);
     } catch {
@@ -164,18 +221,18 @@ export default function CastedApp() {
     try {
       const res = await fetch(videoUrl);
       const blob = await res.blob();
-      const file = new File([blob], "casted-trailer.mp4", { type: "video/mp4" });
+      const file = new File([blob], "a-casted-picture.mp4", { type: "video/mp4" });
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: "Casted",
-          text: t.aiGenerated,
+          title: "A CASTED PICTURE",
+          text: t.endCard,
         });
         return;
       }
-      await navigator.share({ title: "Casted", text: t.aiGenerated, url: videoUrl });
+      await navigator.share({ title: "A CASTED PICTURE", text: t.endCard, url: videoUrl });
     } catch {
-      /* user cancelled or share failed */
+      /* cancelled */
     }
   }
 
@@ -186,183 +243,176 @@ export default function CastedApp() {
   }
 
   function toggleLocale() {
-    const next: Locale = locale === "en" ? "es" : "en";
-    setOverrideLocale(next);
+    setOverrideLocale(locale === "en" ? "es" : "en");
   }
 
+  const shooting = step === "studio" && cameraReady && !cameraError;
+
   return (
-    <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pb-10 pt-[max(1.25rem,env(safe-area-inset-top))]">
-      <div className="grain" aria-hidden />
-      <div className="vignette" aria-hidden />
+    <div className="house">
+      <div className="poster">
+        <div className="grain" aria-hidden />
+        <div className="grain-move" aria-hidden />
+        <div className="vignette" aria-hidden />
 
-      <header className="relative z-10 mb-8 flex items-baseline justify-between">
-        <p className="font-display text-3xl tracking-tight">{t.brand}</p>
-        <button
-          type="button"
-          className="text-xs tracking-[0.2em] text-[var(--muted)] uppercase"
-          onClick={toggleLocale}
-          aria-label={t.langAria}
-        >
-          {t.langToggle}
-        </button>
-      </header>
+        <div className="poster-inner">
+          <header className="bar">
+            <p className="wordmark">Casted</p>
+            <div className="bar">
+              {shooting && (
+                <p className="rec gothic" aria-live="polite">
+                  <span className="rec-dot" />
+                  Rec
+                  <Timecode />
+                </p>
+              )}
+              <button type="button" className="lang gothic" onClick={toggleLocale} aria-label={t.langAria}>
+                {t.langToggle}
+              </button>
+            </div>
+          </header>
 
-      {step === "age" && (
-        <main className="relative z-10 flex flex-1 flex-col justify-end gap-10">
-          <div>
-            <h1 className="font-display text-5xl leading-[0.95] tracking-tight">
-              {t.tagline}
-            </h1>
-            <p className="mt-6 text-lg text-[var(--muted)]">{t.ageLead}</p>
-          </div>
-          <button
-            type="button"
-            className="w-full rounded-full bg-[var(--ink)] py-4 text-base font-medium text-black"
-            onClick={() => setStep("consent")}
-          >
-            {t.ageButton}
-          </button>
-        </main>
-      )}
+          {step === "age" && (
+            <main className="title-card">
+              <p className="gothic" style={{ fontSize: "0.62rem", color: "var(--gold)", marginBottom: "1.4rem" }}>
+                {t.picture}
+              </p>
+              <h1 className="title-line">{t.ageLine}</h1>
+              <p className="title-sub">{t.ageSub}</p>
+              <button type="button" className="ticket gothic" onClick={() => setStep("consent")}>
+                {t.ageButton}
+              </button>
+            </main>
+          )}
 
-      {step === "consent" && (
-        <main className="relative z-10 flex flex-1 flex-col justify-end gap-10">
-          <p className="text-lg text-[var(--muted)]">{t.consentLead}</p>
-          <label className="flex cursor-pointer items-start gap-3 text-base leading-snug">
-            <input
-              type="checkbox"
-              className="mt-1 size-5 shrink-0 accent-[var(--gold)]"
-              checked={consented}
-              onChange={(e) => setConsented(e.target.checked)}
-            />
-            <span>{t.consentLabel}</span>
-          </label>
-          <button
-            type="button"
-            className="w-full rounded-full bg-[var(--ink)] py-4 text-base font-medium text-black"
-            disabled={!consented}
-            onClick={() => consented && setStep("studio")}
-          >
-            {t.continue}
-          </button>
-        </main>
-      )}
-
-      {step === "studio" && (
-        <main className="relative z-10 flex flex-1 flex-col gap-5">
-          <div className="relative aspect-[3/4] w-full overflow-hidden rounded-sm bg-black ring-1 ring-[var(--line)]">
-            <video
-              ref={onVideoRef}
-              className="h-full w-full object-cover"
-              autoPlay
-              playsInline
-              muted
-              style={{ transform: "scaleX(-1)" }}
-            />
-            {cameraError && (
-              <div className="absolute inset-0 flex items-center bg-black/80 p-6">
-                <p className="text-base leading-relaxed">{cameraError}</p>
+          {step === "consent" && (
+            <main className="title-card" style={{ justifyContent: "center" }}>
+              <div className="release">
+                <p className="release-eye gothic">{t.releaseEyebrow}</p>
+                <h2>{t.releaseTitle}</h2>
+                <p>{t.releaseBody}</p>
+                <label className="release-sign">
+                  <input
+                    type="checkbox"
+                    checked={consented}
+                    onChange={(e) => setConsented(e.target.checked)}
+                  />
+                  <span>{t.releaseSign}</span>
+                </label>
+                <button
+                  type="button"
+                  className="release-enter gothic"
+                  disabled={!consented}
+                  onClick={() => consented && setStep("studio")}
+                >
+                  {t.releaseEnter}
+                </button>
               </div>
-            )}
-          </div>
-
-          {genError && (
-            <p className="text-sm text-red-300" role="alert">
-              {genError}
-            </p>
+            </main>
           )}
 
-          <p className="text-xs tracking-[0.25em] text-[var(--muted)] uppercase">
-            {t.pick}
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {SCENARIO_IDS.map((id) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setScenario(id)}
-                className={`rounded-full py-3 text-sm ${
-                  scenario === id
-                    ? "bg-[var(--gold)] text-black"
-                    : "ring-1 ring-[var(--line)] text-[var(--ink)]"
-                }`}
-              >
-                {t[id]}
-              </button>
-            ))}
-          </div>
+          {step === "studio" && (
+            <main style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div className={`stage is-${scenario}`}>
+                <video
+                  ref={onVideoRef}
+                  className="mirror"
+                  autoPlay
+                  playsInline
+                  muted
+                />
+                <div className="grade" />
+                <FrameTicks />
+                <div className="letterbox-fade" />
+                {cameraError && (
+                  <div className="veil">
+                    <div>
+                      <p>{cameraError}</p>
+                      <button type="button" onClick={() => void startCamera()}>
+                        {t.retryCamera}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
-          {cameraError ? (
-            <button
-              type="button"
-              className="w-full rounded-full bg-[var(--ink)] py-4 text-base font-medium text-black"
-              onClick={() => void startCamera()}
-            >
-              {t.retryCamera}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="w-full rounded-full bg-[var(--ink)] py-4 text-base font-medium text-black"
-              disabled={!consented || busy || !cameraReady}
-              onClick={() => void onCapture()}
-            >
-              {t.capture}
-            </button>
+              {genError && (
+                <p className="err" role="alert">
+                  {genError}
+                </p>
+              )}
+
+              <div className="deck" role="group" aria-label={t.pick}>
+                {SCENARIO_IDS.map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`lobby ${scenario === id ? "is-on" : ""}`}
+                    onClick={() => setScenario(id)}
+                  >
+                    <span className="lobby-num gothic">{CHAPTER_META[id].roman}</span>
+                    <span className="lobby-title">{t[id]}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="shutter-row">
+                <button
+                  type="button"
+                  className="shutter"
+                  disabled={!consented || busy || !cameraReady || Boolean(cameraError)}
+                  onClick={() => void onCapture()}
+                  aria-label={t.capture}
+                >
+                  <span className="shutter-ring" />
+                  <span className="shutter-core" />
+                </button>
+              </div>
+            </main>
           )}
-        </main>
-      )}
 
-      {step === "generating" && (
-        <main className="relative z-10 flex flex-1 flex-col items-center justify-center gap-8 text-center">
-          <p className="font-display text-4xl leading-tight">{t.generating}</p>
-          <div className="progress-bar h-px w-40 bg-[var(--gold)]" />
-          <p className="text-sm text-[var(--muted)]">{t.generatingHint}</p>
-        </main>
-      )}
+          {step === "generating" && (
+            <main className="lab">
+              <p className="gothic" style={{ fontSize: "0.62rem", color: "var(--gold)" }}>
+                Reel 01
+              </p>
+              <h1>{t.developing}</h1>
+              <div className="lab-rule" />
+              <p>{t.generatingHint}</p>
+            </main>
+          )}
 
-      {step === "result" && videoUrl && (
-        <main className="relative z-10 flex flex-1 flex-col gap-5">
-          <div className="relative overflow-hidden rounded-sm bg-black ring-1 ring-[var(--line)]">
-            <video
-              className="w-full"
-              src={videoUrl}
-              controls
-              playsInline
-              autoPlay
-              loop
-            />
-          </div>
-          <p className="text-xs tracking-[0.25em] text-[var(--gold)] uppercase">
-            {t.aiGenerated}
-          </p>
-          <div className={canShare ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
-            <button
-              type="button"
-              className="rounded-full bg-[var(--ink)] py-4 text-sm font-medium text-black"
-              onClick={() => void onDownload()}
-            >
-              {t.download}
-            </button>
-            {canShare && (
-              <button
-                type="button"
-                className="rounded-full py-4 text-sm ring-1 ring-[var(--line)]"
-                onClick={() => void onShare()}
-              >
-                {t.share}
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            className="w-full py-3 text-sm text-[var(--muted)]"
-            onClick={resetStudio}
-          >
-            {t.again}
-          </button>
-        </main>
-      )}
+          {step === "result" && videoUrl && (
+            <main style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <div className="stage">
+                <video src={videoUrl} controls playsInline autoPlay loop />
+                <FrameTicks />
+                <div className="stamps">
+                  <p className="stamp-end">{t.endCard}</p>
+                  <p className="stamp-ai gothic">{t.aiGenerated}</p>
+                </div>
+              </div>
+              <div className="drop">
+                {canShare && (
+                  <button type="button" className="drop-main gothic" onClick={() => void onShare()}>
+                    {t.share}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={canShare ? "drop-ghost gothic" : "drop-main gothic"}
+                  onClick={() => void onDownload()}
+                >
+                  {t.download}
+                </button>
+                <button type="button" className="again gothic" onClick={resetStudio}>
+                  {t.again}
+                </button>
+              </div>
+            </main>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

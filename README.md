@@ -2,7 +2,7 @@
 
 Live selfie → a 5-second AI movie trailer.
 
-You confirm you are 18+, consent to one-time biometric processing of your face, pick one locked scene (Action, Noir, or Myth), and capture a still from the live camera. A server route sends that still to [fal MiniMax H3 Max](https://fal.ai/models/minimax/h3-max/image-to-video/api). The still is not stored after the job is submitted. No accounts, no payments, no file upload, no prompt box.
+Casted is one midnight studio releasing one film. You confirm you are 18+, sign a one-page talent release, pick a chapter — I. The Chase, II. The Confession, III. The Ending — and fire a still from the live camera. A server route sends that still to [fal MiniMax H3 Max](https://fal.ai/models/minimax/h3-max/image-to-video/api). The still is not stored after the job is submitted. No accounts, no payments, no file upload, no prompt box. Every print ends as **A CASTED PICTURE**.
 
 ## Local run
 
