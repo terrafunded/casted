@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { captureCoverFrame, stopStream } from "@/lib/capture";
-import { labErrorFromResponse, type LabError } from "@/lib/errors";
+import { errorFromHttpBody } from "@/lib/errors";
 import { copy, localeFromNavigator, type Locale } from "@/lib/i18n";
 import { CHAPTER_META, SCENARIO_IDS, type ScenarioId } from "@/lib/scenarios";
 
@@ -142,13 +142,6 @@ export default function CastedApp() {
     [startCamera, releaseCamera],
   );
 
-  function humanError(code: string | undefined): string {
-    if (code && code in t.errors) {
-      return t.errors[code as LabError];
-    }
-    return t.errors.lab_failed;
-  }
-
   async function onCapture() {
     if (!consented || busy) return;
     const video = videoRef.current;
@@ -177,16 +170,20 @@ export default function CastedApp() {
     try {
       const res = await fetch("/api/generate", { method: "POST", body });
       const text = await res.text();
-      let parsed: { videoUrl?: string; error?: string } = {};
+      let parsed: { videoUrl?: string; error?: string; status?: number } = {};
       try {
-        parsed = JSON.parse(text) as { videoUrl?: string; error?: string };
+        parsed = JSON.parse(text) as {
+          videoUrl?: string;
+          error?: string;
+          status?: number;
+        };
       } catch {
         parsed = {};
       }
 
       if (!res.ok || !parsed.videoUrl) {
-        const code = parsed.error ?? labErrorFromResponse(res.status, text);
-        setGenError(humanError(code));
+        const message = errorFromHttpBody(parsed.status ?? res.status, text);
+        setGenError(message);
         setStep("studio");
         return;
       }

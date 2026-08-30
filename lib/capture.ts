@@ -24,7 +24,7 @@ export function captureCoverFrame(video: HTMLVideoElement): Promise<Blob> {
   }
 
   const longSide = Math.max(sw, sh);
-  const scale = Math.min(1, 1280 / longSide);
+  const scale = Math.min(1, 960 / longSide);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(sw * scale));
   canvas.height = Math.max(1, Math.round(sh * scale));
@@ -40,7 +40,7 @@ export function captureCoverFrame(video: HTMLVideoElement): Promise<Blob> {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("Capture failed."))),
       "image/jpeg",
-      0.9,
+      0.82,
     );
   });
 }
