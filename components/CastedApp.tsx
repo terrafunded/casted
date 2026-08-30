@@ -267,7 +267,7 @@ export default function CastedApp() {
                 </p>
               )}
               <button type="button" className="lang gothic" onClick={toggleLocale} aria-label={t.langAria}>
-                {t.langToggle}
+                {locale === "en" ? "ES" : "EN"}
               </button>
             </div>
           </header>
